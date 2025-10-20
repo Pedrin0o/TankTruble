@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Batalha de Tanques - Imunidade de Tiro</title>
+    <style>
+        /* CSS (sem alterações visuais significativas) */
+        body { background-color: #1a1a1a; color: #fff; font-family: 'Courier New', Courier, monospace; margin: 0; overflow: hidden; }
+        #game-canvas { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1; }
+        h1 { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); text-transform: uppercase; letter-spacing: 4px; z-index: 10; margin: 0; text-shadow: 2px 2px 8px #000; }
+        #score-display, #powerup-display { position: absolute; bottom: 15px; left: 50%; transform: translateX(-50%); display: flex; justify-content: space-between; width: 90%; max-width: 800px; font-size: 1.5rem; z-index: 10; text-shadow: 2px 2px 8px #000; }
+        #powerup-display { bottom: 45px; font-size: 1rem; }
+        #player1-score, #player1-powerup { color: #03a9f4; }
+        #player2-score, #player2-powerup { color: #f44336; }
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; background-color: rgba(0, 0, 0, 0.85); z-index: 20; opacity: 1; transition: opacity 0.3s; }
+        #ui-layer.hidden { opacity: 0; pointer-events: none; }
+        #ui-layer h2 { font-size: 3rem; margin: 0 0 20px 0; text-shadow: 0 0 10px #fff; }
+        #level-selection-container { text-align: center; display: block; }
+        #endless-mode-button { background-color: #dc3545; color: white; border: 2px solid #fff; padding: 20px 40px; font-size: 2rem; font-family: 'Courier New', Courier, monospace; font-weight: bold; cursor: pointer; margin-bottom: 40px; transition: transform 0.2s; }
+        #endless-mode-button:hover { transform: scale(1.1); }
+        #level-selection { display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px; max-width: 800px; margin: 0 auto; /* Centraliza a grade */}
+        .level-button { padding: 20px; font-size: 1.5rem; background-color: #444; border: 2px solid #666; color: #888; cursor: not-allowed; font-family: 'Courier New', Courier, monospace; font-weight: bold; transition: transform 0.2s, background-color 0.2s; }
+        .level-button.unlocked { background-color: #ffc107; color: #1a1a1a; cursor: pointer; border-color: #fff; }
+        .level-button.unlocked:hover { transform: scale(1.1); background-color: #fff; }
+        #victory-message { display: none; flex-direction: column; align-items: center; }
+        #victory-message button { margin-top: 20px; padding: 15px 30px; font-size: 1.5rem; background-color: #28a745; color: white; border: none; cursor: pointer; text-transform: uppercase; }
+        #countdown-display { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 15vw; font-weight: bold; color: yellow; text-shadow: 5px 5px 15px rgba(0,0,0,0.8); z-index: 15; pointer-events: none; opacity: 0; transition: opacity 0.2s; }
+        #countdown-display.visible { opacity: 1; }
+    </style>
+</head>
+<body>
+    <h1>Batalha de Tanques</h1>
+    <canvas id="game-canvas"></canvas>
+    <div id="countdown-display"></div>
+    <div id="ui-layer"> <div id="level-selection-container">
+            <button id="endless-mode-button">MODO INFINITO</button>
+            <h2>Selecione o Nível (Modo Campanha)</h2>
+            <div id="level-selection"></div>
+        </div>
+        <div id="victory-message"> <h2 id="victory-title"></h2>
+            <button id="next-level-button">Continuar</button>
+        </div>
+    </div>
+    <div id="score-display">
+        <span id="player1-score">Player 1: 0</span>
+        <span id="player2-score">Player 2: 0</span>
+    </div>
+    <div id="powerup-display">
+        <span id="player1-powerup"></span>
+        <span id="player2-powerup"></span>
+    </div>
+
+    <script>
+        // --- Elementos do DOM e Constantes ---
+        const canvas = document.getElementById('game-canvas');
+        const ctx = canvas.getContext('2d');
+        const uiLayer = document.getElementById('ui-layer');
+        const countdownDisplay = document.getElementById('countdown-display');
+        const levelSelectionContainer = document.getElementById('level-selection-container');
+        const levelSelection = document.getElementById('level-selection');
+        const victoryMessage = document.getElementById('victory-message');
+        const victoryTitle = document.getElementById('victory-title');
+        const nextLevelButton = document.getElementById('next-level-button');
+        const endlessModeButton = document.getElementById('endless-mode-button');
+        const p1ScoreElem = document.getElementById('player1-score');
+        const p2ScoreElem = document.getElementById('player2-score');
+        const p1PowerupElem = document.getElementById('player1-powerup');
+        const p2PowerupElem = document.getElementById('player2-powerup');
+
+        const TANK_WIDTH = 40, TANK_HEIGHT = 30, CANNON_WIDTH = 5, CANNON_LENGTH = 35;
+        const TANK_SPEED = 2.8, ROTATION_SPEED = 0.05;
+        const BULLET_SPEED = 7, BULLET_RADIUS = 5;
+        const POWERUP_SIZE = 25;
+        const WORLD_WIDTH = 1280, WORLD_HEIGHT = 720;
+        let scale = 1, offsetX = 0, offsetY = 0;
+
+        const NEW_POWERUP_INTERVAL = 5000;
+        const MAX_POWERUPS_ON_MAP = 4;
+        const POWERUP_LIFETIME = 40000;
+        const PROJECTILE_IMMUNITY_DURATION = 100; // Tempo de imunidade GERAL (paredes, inimigos)
+        // <<< MUDANÇA AQUI --- Nova constante para imunidade contra PRÓPRIOS tiros
+        const SELF_IMMUNITY_DURATION = 300; // Tempo de imunidade (0,3s) contra PRÓPRIOS tiros
+
+        // --- Efeitos Sonoros ---
+        const sounds = {
+            musica: new Audio('musica.mp3'), tiro: new Audio('tiro.mp3'), explosao: new Audio('explosao.mp3'),
+            coletarPoder: new Audio('coletar_poder.mp3'), aparecerPoder: new Audio('aparecer_poder.mp3'),
+            laser: new Audio('laser.mp3'), raioFantasma: new Audio('raio_fantasma.mp3')
+        };
+        sounds.musica.loop = true; sounds.musica.volume = 0.3; sounds.tiro.volume = 0.5;
+        sounds.laser.volume = 0.6; sounds.raioFantasma.volume = 0.7;
+
+        // --- Variáveis de Estado ---
+        let keysPressed = {}, projectiles = [], p1, p2, animationFrameId, notification = { text: '', color: '#FFF', timer: 0 };
+        let p1Score = 0, p2Score = 0, gameRunning = false, currentLevel = 0, unlockedLevel = 1;
+        let powerUpsOnMap = [];
+        let nextPowerupTimer = NEW_POWERUP_INTERVAL;
+        let lastTime = 0;
+        let isEndlessMode = false;
+        let endlessMap = { walls: [] };
+        let countdownTimer = 0, countdownStart = 0, controlsLocked = false;
+        let effects = []; // Array para explosões e outros efeitos
+        let roundOver = false;
+        let roundWinner = null;
+
+        // --- Banco de Dados de Níveis Fixos (Campanha) ---
+        const levels = [ { walls:[ {x:200,y:0,width:20,height:500},{x:200,y:500,width:880,height:20},{x:1080,y:200,width:20,height:520},{x:400,y:200,width:700,height:20},{x:400,y:200,width:20,height:200} ] }, { walls:[ {x:300,y:0,width:20,height:300},{x:300,y:400,width:20,height:320},{x:980,y:0,width:20,height:300},{x:980,y:400,width:20,height:320},{x:0,y:350,width:1280,height:20} ] }, { walls:[ {x:0,y:200,width:400,height:20},{x:400,y:200,width:20,height:320},{x:200,y:520,width:400,height:20},{x:880,y:0,width:20,height:400},{x:880,y:400,width:400,height:20} ] }, { walls:[ {x:250,y:150,width:20,height:420},{x:1030,y:150,width:20,height:420},{x:250,y:150,width:300,height:20},{x:750,y:150,width:300,height:20},{x:250,y:550,width:300,height:20},{x:750,y:550,width:300,height:20},{x:500,y:0,width:280,height:20},{x:500,y:700,width:280,height:20} ] }, { walls:[ {x:450,y:250,width:380,height:220} ] }, { walls:[ {x:150,y:150,width:20,height:420},{x:1130,y:150,width:20,height:420},{x:150,y:150,width:980,height:20},{x:150,y:550,width:980,height:20},{x:300,y:300,width:20,height:250},{x:450,y:150,width:20,height:250},{x:620,y:300,width:20,height:250},{x:790,y:150,width:20,height:250},{x:960,y:300,width:20,height:250} ] }, { walls:[ {x:0,y:230,width:500,height:20},{x:780,y:230,width:500,height:20},{x:0,y:470,width:500,height:20},{x:780,y:470,width:500,height:20},{x:630,y:0,width:20,height:720} ] }, { walls:[ {x:200,y:100,width:20,height:520},{x:400,y:100,width:20,height:520},{x:600,y:100,width:20,height:520},{x:800,y:100,width:20,height:520},{x:1000,y:100,width:20,height:520} ] }, { walls:[ {x:150,y:0,width:20,height:300},{x:150,y:300,width:400,height:20},{x:550,y:150,width:20,height:400},{x:550,y:550,width:400,height:20},{x:950,y:300,width:20,height:420},{x:1100,y:0,width:20,height:300} ] }, { walls:[ {x:300,y:200,width:20,height:320},{x:980,y:200,width:20,height:320},{x:300,y:200,width:700,height:20},{x:450,y:350,width:380,height:20},{x:150,y:500,width:1000,height:20} ] }, { walls:[ {x:0,y:180,width:200,height:20},{x:200,y:180,width:20,height:200},{x:200,y:380,width:400,height:20},{x:600,y:180,width:20,height:200},{x:400,y:180,width:400,height:20},{x:1080,y:180,width:200,height:20},{x:1080,y:180,width:20,height:200},{x:880,y:380,width:400,height:20},{x:880,y:180,width:20,height:200},{x:680,y:180,width:400,height:20},{x:0,y:530,width:1280,height:20} ] }, { walls:[ {x:630,y:0,width:20,height:250},{x:630,y:470,width:20,height:250},{x:200,y:350,width:880,height:20} ] }, { walls:[ {x:150,y:150,width:150,height:20},{x:150,y:550,width:150,height:20},{x:400,y:350,width:150,height:20},{x:650,y:150,width:150,height:20},{x:650,y:550,width:150,height:20},{x:900,y:350,width:150,height:20} ] }, { walls:[ {x:100,y:100,width:20,height:200},{x:100,y:420,width:20,height:200},{x:1180,y:100,width:20,height:200},{x:1180,y:420,width:20,height:200},{x:300,y:200,width:20,height:320},{x:500,y:0,width:20,height:220},{x:500,y:320,width:20,height:400},{x:780,y:0,width:20,height:400},{x:780,y:500,width:20,height:220},{x:980,y:100,width:20,height:320} ] }, { walls:[ {x:200,y:200,width:200,height:20},{x:880,y:200,width:200,height:20},{x:200,y:500,width:200,height:20},{x:880,y:500,width:200,height:20},{x:540,y:0,width:200,height:20},{x:540,y:700,width:200,height:20} ] }, { walls:[ {x:200,y:150,width:20,height:420},{x:400,y:150,width:480,height:20},{x:400,y:550,width:480,height:20},{x:880,y:150,width:20,height:420},{x:1080,y:0,width:20,height:720} ] }, { walls:[ {x:0,y:350,width:400,height:20},{x:400,y:150,width:20,height:220},{x:550,y:150,width:200,height:20},{x:880,y:350,width:400,height:20},{x:880,y:350,width:20,height:220},{x:730,y:550,width:200,height:20} ] }, { walls:[ {x:150,y:150,width:20,height:150},{x:150,y:420,width:20,height:150},{x:350,y:0,width:20,height:200},{x:350,y:300,width:20,height:420},{x:550,y:150,width:20,height:420},{x:750,y:0,width:20,height:500},{x:950,y:200,width:20,height:520},{x:1150,y:0,width:20,height:350} ] }, { walls:[ {x:200,y:200,width:880,height:20},{x:200,y:500,width:880,height:20} ] }, { walls:[ {x:300,y:300,width:680,height:120} ] }, { walls:[ {x:200,y:0,width:20,height:200},{x:200,y:200,width:300,height:20},{x:500,y:200,width:20,height:320},{x:500,y:520,width:300,height:20},{x:800,y:0,width:20,height:520},{x:800,y:520,width:300,height:20} ] }, { walls:[ {x:300,y:150,width:200,height:20},{x:300,y:550,width:200,height:20},{x:780,y:150,width:200,height:20},{x:780,y:550,width:200,height:20},{x:630,y:0,width:20,height:720} ] }, { walls:[ {x:150,y:150,width:20,height:420},{x:150,y:150,width:420,height:20},{x:570,y:150,width:20,height:420},{x:150,y:570,width:420,height:20},{x:720,y:150,width:420,height:20},{x:720,y:150,width:20,height:420},{x:1140,y:150,width:20,height:420},{x:720,y:570,width:440,height:20} ] }, { walls:[ {x:300,y:0,width:20,height:200},{x:300,y:200,width:300,height:20},{x:600,y:200,width:20,height:320},{x:0,y:520,width:620,height:20},{x:900,y:0,width:20,height:400},{x:900,y:400,width:380,height:20} ] }, { walls:[ {x:100,y:100,width:20,height:20},{x:200,y:200,width:20,height:20},{x:300,y:300,width:20,height:20},{x:400,y:400,width:20,height:20},{x:500,y:500,width:20,height:20},{x:1180,y:100,width:20,height:20},{x:1080,y:200,width:20,height:20},{x:980,y:300,width:20,height:20},{x:880,y:400,width:20,height:20},{x:780,y:500,width:20,height:20} ] } ];
+
+        // --- Banco de Dados de Power-ups ---
+        const powerUpTypes = ['LÁSER', 'TIRO TELEGUIDADO', 'ESCOPETA', 'BOMBA CACHO', 'RAIO FANTASMA'];
+        const powerUpColors = { 'LÁSER': '#FF5733', 'TIRO TELEGUIDADO': '#FF00FF', 'ESCOPETA': '#FFA500', 'BOMBA CACHO': '#FFFFFF', 'RAIO FANTASMA': '#FDFD96' };
+        
+        // --- CLASSES DO JOGO ---
+        class Tank { constructor(x, y, color, controls) { this.x = x; this.y = y; this.color = color; this.controls = controls; this.width = TANK_WIDTH; this.height = TANK_HEIGHT; this.angle = Math.random() * Math.PI * 2; this.isDestroyed = false; this.powerUp = null; } draw() { if(this.isDestroyed) return; ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.angle); ctx.fillStyle = this.color; ctx.fillRect(-this.width / 2, -this.height / 2, this.width, this.height); ctx.fillStyle = 'grey'; ctx.fillRect(0, -CANNON_WIDTH / 2, CANNON_LENGTH, CANNON_WIDTH); if (this.powerUp) { ctx.fillStyle = '#FFF'; ctx.font = 'bold 20px Courier New'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(this.powerUp[0], 0, 1); } ctx.restore(); } update() { if (this.isDestroyed || controlsLocked) return; if (keysPressed[this.controls.left]) this.rotate(-1); if (keysPressed[this.controls.right]) this.rotate(1); if (keysPressed[this.controls.forward]) this.move(1); if (keysPressed[this.controls.backward]) this.move(-1); if (keysPressed[this.controls.shoot]) this.shoot(); } move(direction) { const nextX = this.x + Math.cos(this.angle) * TANK_SPEED * direction; const nextY = this.y + Math.sin(this.angle) * TANK_SPEED * direction; if (!isPositionColliding(nextX, nextY, this.angle)) { this.x = nextX; this.y = nextY; } } rotate(direction) { const nextAngle = this.angle + ROTATION_SPEED * direction; if (!isPositionColliding(this.x, this.y, nextAngle)) { this.angle = nextAngle; } } shoot() { keysPressed[this.controls.shoot] = false; const spawnX = this.x; const spawnY = this.y; const target = this === p1 ? p2 : p1; switch (this.powerUp) { case 'LÁSER': projectiles.push(new Laser(this)); break; case 'TIRO TELEGUIDADO': projectiles.push(new HomingMissile(spawnX, spawnY, this.angle, this, this.color, target)); break; case 'ESCOPETA': for (let i = -2; i <= 2; i++) { projectiles.push(new Bullet(spawnX, spawnY, this.angle + i * 0.15, this, this.color)); } sounds.tiro.play(); break; case 'BOMBA CACHO': projectiles.push(new ClusterBomb(spawnX, spawnY, this.angle, this, this.color)); break; case 'RAIO FANTASMA': projectiles.push(new PhantomRay(spawnX, spawnY, this.angle, this, powerUpColors['RAIO FANTASMA'], target)); break; default: this.fireStandardBullet(); return; } this.powerUp = null; updatePowerupUI(); } 
+            fireStandardBullet() { 
+                sounds.tiro.currentTime = 0; sounds.tiro.play(); 
+                const spawnX = this.x; const spawnY = this.y;
+                projectiles.push(new Bullet(spawnX, spawnY, this.angle, this, this.color)); 
+            } 
+        }
+        class Projectile { constructor(x, y, angle, owner, color) { this.x = x; this.y = y; this.owner = owner; this.color = color; this.angle = angle; this.createdAt = Date.now(); this.radius = 1; this.type = 'base'; this.isImmune = true; } checkWallHit(px, py) { const x = px ?? this.x; const y = py ?? this.y; for (const wall of getcurrentwalls()) { if (x + this.radius > wall.x && x - this.radius < wall.x + wall.width && y + this.radius > wall.y && y - this.radius < wall.y + wall.height) return true; } return false; } destroy() { const index = projectiles.indexOf(this); if (index > -1) projectiles.splice(index, 1); } 
+            updateImmunity() { if (this.isImmune && Date.now() - this.createdAt > PROJECTILE_IMMUNITY_DURATION) { this.isImmune = false; } }
+        }
+        class Bullet extends Projectile { constructor(x, y, angle, owner, color) { super(x, y, angle, owner, color); this.radius = BULLET_RADIUS; this.vx = Math.cos(angle) * BULLET_SPEED; this.vy = Math.sin(angle) * BULLET_SPEED; this.type = 'bullet'; } draw() { if (this.isImmune) return; ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2); ctx.fillStyle = this.color; ctx.shadowColor = this.color; ctx.shadowBlur = 10; ctx.fill(); ctx.shadowBlur = 0; } update() { this.updateImmunity(); this.x += this.vx; this.y += this.vy; this.handleRicochet(); } handleRicochet() { if (this.x - this.radius < 0 || this.x + this.radius > WORLD_WIDTH) { this.vx *= -1; this.x += this.vx; } if (this.y - this.radius < 0 || this.y + this.radius > WORLD_HEIGHT) { this.vy *= -1; this.y += this.vy; } for (const wall of getcurrentwalls()) { if (this.x+this.radius>wall.x && this.x-this.radius<wall.x+wall.width && this.y+this.radius>wall.y && this.y-this.radius<wall.y+wall.height) { const pX=this.x-this.vx, pY=this.y-this.vy; if (pX+this.radius<=wall.x || pX-this.radius>=wall.x+wall.width) this.vx*=-1; if (pY+this.radius<=wall.y || pY-this.radius>=wall.y+wall.height) this.vy*=-1; this.x+=this.vx; this.y+=this.vy; break; } } } }
+        
+        class HomingMissile extends Projectile { constructor(x, y, angle, owner, color, target) { super(x, y, angle, owner, color); this.target = target; this.radius = 8; this.speed = 2.5; this.turnSpeed = 0.05; this.type = 'homing'; this.length = 18; this.width = 8; } 
+            update() { 
+                this.updateImmunity(); 
+                
+                if (!this.isImmune && (!this.target || this.target.isDestroyed || this.checkWallHit())) {
+                    this.destroy(); 
+                    return; 
+                }
+                if (this.target && this.target.isDestroyed) {
+                    this.destroy();
+                    return;
+                }
+                
+                let currentAngle = this.angle; 
+                let wallCollisionAhead = false; 
+                const lookAheadX = this.x + Math.cos(this.angle) * 50; 
+                const lookAheadY = this.y + Math.sin(this.angle) * 50; 
+                for (const wall of getcurrentwalls()) { 
+                    if (lookAheadX + this.radius > wall.x && lookAheadX - this.radius < wall.x + wall.width && lookAheadY + this.radius > wall.y && lookAheadY - this.radius < wall.y + wall.height) { 
+                        wallCollisionAhead = true; 
+                        break; 
+                    } 
+                } 
+                if (wallCollisionAhead) { 
+                    currentAngle += 0.8 * (Math.random() > 0.5 ? 1 : -1); 
+                } else { 
+                    const targetAngle = Math.atan2(this.target.y - this.y, this.target.x - this.x); 
+                    let d = targetAngle - this.angle; 
+                    while (d > Math.PI) d -= 2*Math.PI; 
+                    while (d < -Math.PI) d += 2*Math.PI; 
+                    currentAngle += Math.sign(d) * Math.min(this.turnSpeed, Math.abs(d)); 
+                } 
+                this.angle = currentAngle; 
+                this.x += Math.cos(this.angle) * this.speed; 
+                this.y += Math.sin(this.angle) * this.speed; 
+            } 
+            draw() { 
+                if (this.isImmune) return; 
+                ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.angle); ctx.fillStyle = this.color; ctx.shadowColor = this.color; ctx.shadowBlur = 10; ctx.fillRect(-this.length/2, -this.width/2, this.length, this.width); ctx.beginPath(); ctx.moveTo(this.length/2, 0); ctx.lineTo(this.length/2-6, -this.width/2); ctx.lineTo(this.length/2-6, this.width/2); ctx.closePath(); ctx.fill(); ctx.shadowBlur = 0; ctx.restore(); 
+            } 
+        }
+
+        class ClusterBomb extends Projectile { 
+            constructor(x, y, angle, owner, color) { 
+                super(x, y, angle, owner, color); 
+                this.radius = 10; 
+                this.vx = Math.cos(angle) * 2; 
+                this.vy = Math.sin(angle) * 2; 
+                this.type = 'cluster'; 
+                this.fuse = 3000; 
+                this.isImmune = true; // Ativa a imunidade
+            } 
+            update() { 
+                this.updateImmunity(); // Checa a imunidade GERAL (100ms)
+                this.x += this.vx; 
+                this.y += this.vy; 
+                if (Date.now() - this.createdAt > this.fuse || this.checkWallHit()) { 
+                    this.explode(); 
+                } 
+            } 
+            explode() { 
+                for (let i = 0; i < 8; i++) { 
+                    projectiles.push(new Bullet(this.x, this.y, i * Math.PI / 4, this.owner, this.color)); 
+                } 
+                this.destroy(); 
+            } 
+            draw() { 
+                if (this.isImmune) return; // Não desenha se estiver imune (nos 100ms)
+                ctx.beginPath(); 
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2); 
+                ctx.fillStyle = (Math.floor(Date.now() / 100) % 2 === 0) ? '#FFFFFF' : this.color; 
+                ctx.fill(); 
+            } 
+        }
+
+        class Laser extends Projectile { constructor(owner) { super(owner.x, owner.y, owner.angle, owner, powerUpColors['LÁSER']); this.type = 'laser'; this.life = 25; this.isImmune = false; /* Laser is instant */ sounds.laser.currentTime = 0; sounds.laser.play().catch(()=>{}); } update() { this.life--; if (this.life <= 0) this.destroy(); } draw() { const endX = this.owner.x + Math.cos(this.owner.angle) * 2000; const endY = this.owner.y + Math.sin(this.owner.angle) * 2000; ctx.save(); ctx.strokeStyle = this.color; ctx.lineWidth = 5; ctx.shadowColor = this.color; ctx.shadowBlur = 20; ctx.globalAlpha = Math.max(0, this.life / 15); ctx.beginPath(); ctx.moveTo(this.owner.x, this.owner.y); ctx.lineTo(endX, endY); ctx.stroke(); ctx.restore(); } }
+        class PhantomRay extends Projectile { constructor(x, y, angle, owner, color, target) { super(x, y, angle, owner, color); this.target = target; this.radius = 10; this.speed = 8; this.turnSpeed = 0.1; this.type = 'phantom_ray'; this.homingActivated = false; this.activationRadius = 250; this.isImmune = true; // Give Phantom Ray immunity too
+            sounds.raioFantasma.currentTime = 0; sounds.raioFantasma.play().catch(()=>{}); } update() { this.updateImmunity(); if(this.target && !this.target.isDestroyed) { const distance = Math.hypot(this.target.x - this.x, this.target.y - this.y); if (distance < this.activationRadius) { this.homingActivated = true; } if (this.homingActivated) { const targetAngle = Math.atan2(this.target.y - this.y, this.target.x - this.x); let d = targetAngle - this.angle; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; this.angle += Math.sign(d) * Math.min(this.turnSpeed, Math.abs(d)); } } this.x += Math.cos(this.angle) * this.speed; this.y += Math.sin(this.angle) * this.speed; if (this.x < -this.radius || this.x > WORLD_WIDTH + this.radius || this.y < -this.radius || this.y > WORLD_HEIGHT + this.radius) this.destroy(); } draw() { if (this.isImmune) return; ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.angle); ctx.fillStyle = this.color; ctx.shadowColor = this.color; ctx.shadowBlur = 15; ctx.fillRect(-12, -3, 24, 6); ctx.restore(); } }
+        
+        // --- CLASSES PARA EXPLOSÃO ---
+        class Particle {
+            constructor(x, y, color) {
+                this.x = x;
+                this.y = y;
+                this.color = color;
+                this.angle = Math.random() * Math.PI * 2;
+                this.speed = Math.random() * 5 + 2;
+                this.vx = Math.cos(this.angle) * this.speed;
+                this.vy = Math.sin(this.angle) * this.speed;
+                this.life = 100 + Math.random() * 50; // Duração em frames
+                this.radius = Math.random() * 3 + 2;
+            }
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vx *= 0.97; // Fricção
+                this.vy *= 0.97;
+                this.life--;
+            }
+            draw() {
+                ctx.save();
+                ctx.globalAlpha = Math.max(0, this.life / 150);
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.shadowColor = this.color;
+                ctx.shadowBlur = 10;
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+        class Explosion {
+            constructor(x, y, color) {
+                this.x = x;
+                this.y = y;
+                this.color = color;
+                this.particles = [];
+                this.isAlive = true;
+                // Partículas da cor do tanque
+                for (let i = 0; i < 40; i++) {
+                    this.particles.push(new Particle(x, y, color));
+                }
+                // Partículas de fogo/fumaça
+                for (let i = 0; i < 20; i++) {
+                    const fireColor = ['#FFA500', '#FF4500', '#FFD700', '#808080'][Math.floor(Math.random() * 4)];
+                    this.particles.push(new Particle(x, y, fireColor));
+                }
+            }
+            update() {
+                for (let i = this.particles.length - 1; i >= 0; i--) {
+                    this.particles[i].update();
+                    if (this.particles[i].life <= 0) {
+                        this.particles.splice(i, 1);
+                    }
+                }
+                if (this.particles.length === 0) {
+                    this.isAlive = false;
+                }
+            }
+            draw() {
+                this.particles.forEach(p => p.draw());
+            }
+        }
+        // <<< FIM DAS CLASSES DE EXPLOSÃO ---
+
+        // --- IA GERADORA DE MAPAS ---
+        function generateMazeWalls() {
+            const cellSize = 90; const cols = Math.floor(WORLD_WIDTH / cellSize); const rows = Math.floor(WORLD_HEIGHT / cellSize);
+            const grid = Array.from({ length: rows }, () => Array.from({ length: cols }, () => ({ visited: false, walls: { top: true, right: true, bottom: true, left: true } })));
+            const stack = []; let startY = Math.floor(Math.random() * rows), startX = Math.floor(Math.random() * cols);
+            let current = { cell: grid[startY][startX], x: startX, y: startY }; current.cell.visited = true; stack.push(current);
+            const getNeighbors = (x, y) => { const neighbors = []; if (y > 0 && !grid[y - 1][x].visited) neighbors.push({ x: x, y: y-1, dir: 'top' }); if (x < cols - 1 && !grid[y][x + 1].visited) neighbors.push({ x: x+1, y: y, dir: 'right' }); if (y < rows - 1 && !grid[y + 1][x].visited) neighbors.push({ x: x, y: y+1, dir: 'bottom' }); if (x > 0 && !grid[y][x - 1].visited) neighbors.push({ x: x-1, y: y, dir: 'left' }); return neighbors; };
+            while (stack.length > 0) {
+                let currentPos = stack[stack.length - 1]; const neighbors = getNeighbors(currentPos.x, currentPos.y);
+                if (neighbors.length > 0) {
+                    const next = neighbors[Math.floor(Math.random() * neighbors.length)];
+                    if (next.dir === 'top') { currentPos.cell.walls.top = false; grid[next.y][next.x].walls.bottom = false; } else if (next.dir === 'right') { currentPos.cell.walls.right = false; grid[next.y][next.x].walls.left = false; } else if (next.dir === 'bottom') { currentPos.cell.walls.bottom = false; grid[next.y][next.x].walls.top = false; } else if (next.dir === 'left') { currentPos.cell.walls.left = false; grid[next.y][next.x].walls.right = false; }
+                    grid[next.y][next.x].visited = true; stack.push({cell: grid[next.y][next.x], x: next.x, y: next.y});
+                } else { stack.pop(); }
+            }
+            const walls = []; const wallThickness = 12;
+            for (let y = 0; y < rows; y++) { for (let x = 0; x < cols; x++) { const cell = grid[y][x]; if (cell.walls.top && y > 0) walls.push({ x: x * cellSize - wallThickness/2, y: y * cellSize - wallThickness/2, width: cellSize + wallThickness, height: wallThickness }); if (cell.walls.left && x > 0) walls.push({ x: x * cellSize - wallThickness/2, y: y * cellSize - wallThickness/2, width: wallThickness, height: cellSize + wallThickness }); } }
+            walls.push({ x: -wallThickness/2, y: -wallThickness/2, width: WORLD_WIDTH + wallThickness, height: wallThickness }); walls.push({ x: -wallThickness/2, y: WORLD_HEIGHT - wallThickness/2, width: WORLD_WIDTH + wallThickness, height: wallThickness }); walls.push({ x: -wallThickness/2, y: -wallThickness/2, width: wallThickness, height: WORLD_HEIGHT + wallThickness }); walls.push({ x: WORLD_WIDTH - wallThickness/2, y: -wallThickness/2, width: wallThickness, height: WORLD_HEIGHT + wallThickness });
+            const internalWalls = walls.slice(0, walls.length - 4); const wallsToRemove = Math.floor(internalWalls.length * 0.15);
+            for (let i = 0; i < wallsToRemove; i++) { if (internalWalls.length > 0) { const randomIndex = Math.floor(Math.random() * internalWalls.length); const wallToRemove = internalWalls[randomIndex]; const wallIndexInMainArray = walls.indexOf(wallToRemove); if (wallIndexInMainArray > -1) { walls.splice(wallIndexInMainArray, 1); internalWalls.splice(randomIndex, 1); } } }
+            return walls;
+        }
+        
+        // --- FUNÇÕES GLOBAIS DO JOGO ---
+        function getcurrentwalls() { return isEndlessMode ? endlessMap.walls : levels[currentLevel].walls; }
+        function isPointInsideWall(x, y) { for (const wall of getcurrentwalls()) { if (x >= wall.x && x <= wall.x + wall.width && y >= wall.y && y <= wall.y + wall.height) return true; } return false; }
+        function isPositionColliding(x, y, angle) { const halfWidth = TANK_WIDTH / 2; const halfHeight = TANK_HEIGHT / 2; if (x - halfWidth < 0 || x + halfWidth > WORLD_WIDTH || y - halfHeight < 0 || y + halfHeight > WORLD_HEIGHT) return true; const cannonPoints = [ { x: x + Math.cos(angle) * (CANNON_WIDTH / 2), y: y + Math.sin(angle) * (CANNON_WIDTH / 2) }, { x: x + Math.cos(angle) * (CANNON_LENGTH / 2), y: y + Math.sin(angle) * (CANNON_LENGTH / 2) }, { x: x + Math.cos(angle) * CANNON_LENGTH, y: y + Math.sin(angle) * CANNON_LENGTH } ]; for (const wall of getcurrentwalls()) { const tankLeft = x - halfWidth, tankRight = x + halfWidth; const tankTop = y - halfHeight, tankBottom = y + halfHeight; if (tankRight > wall.x && tankLeft < wall.x + wall.width && tankBottom > wall.y && tankTop < wall.y + wall.height) return true; for (const point of cannonPoints) { if (isPointInsideWall(point.x, point.y)) return true; } } return false; }
+        function findValidSpawnPoint(avoidPoints = []) { let spawnPoint = null; let attempts = 0; const MIN_DISTANCE = 300; while (attempts < 1000) { const x = Math.random() * (WORLD_WIDTH - TANK_WIDTH * 4) + TANK_WIDTH * 2; const y = Math.random() * (WORLD_HEIGHT - TANK_HEIGHT * 4) + TANK_HEIGHT * 2; const angle = Math.random() * Math.PI * 2; if (!isPositionColliding(x, y, angle)) { let tooClose = false; for(const point of avoidPoints) { if (Math.hypot(x-point.x, y-point.y) < MIN_DISTANCE) { tooClose = true; break; } } if (!tooClose) { spawnPoint = { x, y }; break; } } attempts++; } if (!spawnPoint) {console.error("Não foi possível encontrar local seguro para spawn!"); return { x: 100, y: 100 };} return spawnPoint; }
+        function drawMap() { ctx.fillStyle = '#2c2c2c'; ctx.fillRect(0,0,WORLD_WIDTH, WORLD_HEIGHT); ctx.fillStyle = '#6d6d6d'; getcurrentwalls().forEach(wall => { ctx.fillRect(wall.x, wall.y, wall.width, wall.height); }); }
+        
+        function init(levelIdx) { 
+            currentLevel = levelIdx; 
+            if(isEndlessMode) endlessMap.walls = generateMazeWalls(); 
+            let p1StartPos, p2StartPos, attempts = 0;
+            do {
+                p1StartPos = findValidSpawnPoint(); p2StartPos = findValidSpawnPoint([p1StartPos]); attempts++;
+                if(attempts > 50) { console.error("Tentativas de spawn excedidas!"); p1StartPos = {x:100, y:100}; p2StartPos = {x: WORLD_WIDTH - 100, y: WORLD_HEIGHT - 100}; break; }
+            } while (isPositionColliding(p1StartPos.x, p1StartPos.y, 0) || isPositionColliding(p2StartPos.x, p2StartPos.y, 0));
+            p1 = new Tank(p1StartPos.x, p1StartPos.y, '#03a9f4', { forward: 'KeyW', backward: 'KeyS', left: 'KeyA', right: 'KeyD', shoot: 'KeyE' }); 
+            p2 = new Tank(p2StartPos.x, p2StartPos.y, '#f44336', { forward: 'ArrowUp', backward: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight', shoot: 'KeyL' }); 
+            projectiles = []; 
+            powerUpsOnMap = []; 
+            effects = []; // Limpa os efeitos da rodada anterior
+            nextPowerupTimer = 3000; 
+            updatePowerupUI(); 
+            countdownTimer = 3; 
+            countdownStart = performance.now(); 
+            controlsLocked = true; 
+            roundOver = false; 
+            roundWinner = null; 
+            countdownDisplay.classList.add('visible'); 
+            updateCountdownDisplay(); 
+        }
+
+        function isTankHitByLaser(tank, laserOwner) { const laserAngle = laserOwner.angle; const dx = tank.x - laserOwner.x; const dy = tank.y - laserOwner.y; const distanceAlongLaser = dx * Math.cos(laserAngle) + dy * Math.sin(laserAngle); if (distanceAlongLaser < 0) return false; const perpendicularDist = Math.abs(dx * Math.sin(laserAngle) - dy * Math.cos(laserAngle)); return perpendicularDist < TANK_WIDTH / 2; }
+        
+        // <<< MUDANÇA AQUI --- Lógica de colisão atualizada
+        function checkCollisions() { 
+            for (let i = projectiles.length - 1; i >= 0; i--) { 
+                const proj = projectiles[i]; 
+                
+                // Pula projéteis que estão na imunidade GERAL (100ms)
+                if (!proj || proj.isImmune) continue; 
+                
+                if(proj.type === 'laser') { 
+                    [p1, p2].forEach(tank => { 
+                        if(tank && !tank.isDestroyed && proj.owner !== tank) { // Laser não pode se autodestruir (é instantâneo)
+                            if (isTankHitByLaser(tank, proj.owner)) { 
+                                tank.isDestroyed = true; 
+                                effects.push(new Explosion(tank.x, tank.y, tank.color)); // Cria explosão
+                                proj.owner === p1 ? p1Score++ : p2Score++; 
+                                roundOver = true;
+                                controlsLocked = true;
+                                roundWinner = proj.owner === p1 ? 'Player 1 (Azul)' : 'Player 2 (Vermelho)';
+                                sounds.explosao.play();
+                                updateScores();
+                            } 
+                        } 
+                    }); 
+                    continue; 
+                } 
+                
+                // <<< MUDANÇA AQUI --- Função auxiliar de colisão com nova lógica
+                const checkTankCollision = (tank, proj) => { 
+                    if (!tank || tank.isDestroyed) return false; 
+                    
+                    // <<< INÍCIO DA NOVA LÓGICA
+                    // Verifica se é o projétil do próprio tanque
+                    if (proj.owner === tank) {
+                        // Verifica há quanto tempo o projétil foi disparado
+                        const timeSinceFired = Date.now() - proj.createdAt;
+                        if (timeSinceFired < SELF_IMMUNITY_DURATION) {
+                            return false; // Está imune aos PRÓPRIOS tiros por 300ms
+                        }
+                        // Se passou os 300ms, a colisão é verificada normalmente (abaixo)
+                    }
+                    // <<< FIM DA NOVA LÓGICA
+                    
+                    // Colisão normal (para o oponente, ou para si mesmo após 300ms)
+                    return Math.hypot(proj.x - tank.x, proj.y - tank.y) < (TANK_WIDTH/2 + proj.radius);
+                }; 
+                // --- FIM DA MUDANÇA ---
+                
+                if (checkTankCollision(p1, proj)) { 
+                    p1.isDestroyed = true; 
+                    effects.push(new Explosion(p1.x, p1.y, p1.color)); // Cria explosão
+                    p2Score++; 
+                    roundOver = true;
+                    controlsLocked = true;
+                    roundWinner = 'Player 2 (Vermelho)';
+                    sounds.explosao.play();
+                    updateScores();
+                    projectiles.splice(i, 1); // Remove projétil após colisão
+                    return; // Sai da função após uma colisão para evitar erros
+                } else if (checkTankCollision(p2, proj)) { 
+                    p2.isDestroyed = true; 
+                    effects.push(new Explosion(p2.x, p2.y, p2.color)); // Cria explosão
+                    p1Score++; 
+                    roundOver = true;
+                    controlsLocked = true;
+                    roundWinner = 'Player 1 (Azul)';
+                    sounds.explosao.play();
+                    updateScores();
+                    projectiles.splice(i, 1); // Remove projétil após colisão
+                    return; // Sai da função
+                } 
+            } 
+        }
+        // --- FIM DA MUDANÇA ---
+
+        function updateScores() { p1ScoreElem.textContent = `Player 1: ${p1Score}`; p2ScoreElem.textContent = `Player 2: ${p2Score}`; }
+        
+        function showVictoryScreen(winner) { victoryTitle.textContent = `${winner} venceu o Nível ${currentLevel + 1}!`; levelSelectionContainer.style.display = 'none'; victoryMessage.style.display = 'flex'; uiLayer.classList.remove('hidden'); } // Esconde seleção, mostra vitória
+        function showLevelSelection() {
+            isEndlessMode = false; sounds.musica.pause(); sounds.musica.currentTime = 0; p1Score = 0; p2Score = 0; updateScores();
+            levelSelection.innerHTML = '';
+            for (let i = 0; i < levels.length; i++) {
+                const button = document.createElement('button'); button.textContent = i + 1; button.classList.add('level-button');
+                if (i < unlockedLevel) { button.classList.add('unlocked'); button.onclick = () => { isEndlessMode = false; startGame(i); }; }
+                levelSelection.appendChild(button);
+            }
+            levelSelectionContainer.style.display = 'block'; // Mostra container de seleção
+            victoryMessage.style.display = 'none'; // Esconde mensagem de vitória
+            uiLayer.classList.remove('hidden'); // Garante que a UI esteja visível
+        }
+        function startGame(levelIndex) { if(animationFrameId) cancelAnimationFrame(animationFrameId); init(levelIndex); uiLayer.classList.add('hidden'); gameRunning = true; lastTime = 0; animationFrameId = requestAnimationFrame(gameLoop); sounds.musica.play().catch(e=>console.log("Música bloqueada.")); }
+        function startNextEndlessRound() { endlessMap.walls = []; init(null); uiLayer.classList.add('hidden'); gameRunning = true; lastTime = 0; animationFrameId = requestAnimationFrame(gameLoop); }
+        function updatePowerupUI() { p1PowerupElem.textContent = p1?.powerUp ? `P1: ${p1.powerUp}` : ''; p2PowerupElem.textContent = p2?.powerUp ? `P2: ${p2.powerUp}` : ''; }
+        function updatePowerUps(deltaTime) {
+            nextPowerupTimer -= deltaTime;
+            if (nextPowerupTimer <= 0 && powerUpsOnMap.length < MAX_POWERUPS_ON_MAP) {
+                const type = powerUpTypes[Math.floor(Math.random()*powerUpTypes.length)];
+                let x, y, attempts = 0, isValidPosition = false;
+                while (!isValidPosition && attempts < 100) { x = Math.random()*(WORLD_WIDTH - 60) + 30; y = Math.random()*(WORLD_HEIGHT - 60) + 30; if (!isPositionColliding(x, y, 0)) isValidPosition = true; attempts++; }
+                if (isValidPosition) { powerUpsOnMap.push({ x, y, type, createdAt: Date.now() }); sounds.aparecerPoder.play(); }
+                nextPowerupTimer = NEW_POWERUP_INTERVAL;
+            }
+            for (let i = powerUpsOnMap.length - 1; i >= 0; i--) {
+                const powerUp = powerUpsOnMap[i];
+                if (Date.now() - powerUp.createdAt > POWERUP_LIFETIME) { powerUpsOnMap.splice(i, 1); continue; }
+                [p1, p2].forEach(tank => {
+                    if (tank && !tank.isDestroyed && !tank.powerUp && Math.hypot(powerUp.x - tank.x, powerUp.y - tank.y) < (TANK_WIDTH/2 + POWERUP_SIZE/2)) {
+                        tank.powerUp = powerUp.type; const playerName = tank === p1 ? "JOGADOR 1" : "JOGADOR 2";
+                        notification.text = `${playerName} PEGOU ${tank.powerUp}!`; notification.color = tank.color; notification.timer = 180;
+                        powerUpsOnMap.splice(i, 1); updatePowerupUI(); sounds.coletarPoder.play();
+                    }
+                });
+            }
+        }
+        function drawPowerUps() { powerUpsOnMap.forEach(powerUp => { const { x, y, type, createdAt } = powerUp; const lifeLeft = (POWERUP_LIFETIME - (Date.now() - createdAt)) / POWERUP_LIFETIME; ctx.save(); ctx.translate(x, y); ctx.fillStyle = powerUpColors[type]; ctx.font = 'bold 20px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.globalAlpha = 0.3 + Math.sin(Date.now()/150) * 0.4 + (lifeLeft * 0.3); ctx.fillRect(-POWERUP_SIZE/2, -POWERUP_SIZE/2, POWERUP_SIZE, POWERUP_SIZE); ctx.globalAlpha = 1; ctx.fillStyle = 'white'; ctx.font = 'bold 22px monospace'; ctx.fillText(type[0], 0, 3); ctx.restore(); }); }
+        function drawNotification() { if (notification.timer > 0) { ctx.save(); const fontSize = Math.min(window.innerWidth / 25, 40); ctx.font = `bold ${fontSize}px Courier New`; ctx.textAlign = 'center'; ctx.fillStyle = notification.color; ctx.strokeStyle = 'black'; ctx.lineWidth = 2; const alpha = Math.min(1, notification.timer / 60); ctx.globalAlpha = alpha; ctx.strokeText(notification.text, canvas.width / 2, canvas.height * 0.15); ctx.fillText(notification.text, canvas.width / 2, canvas.height * 0.15); notification.timer--; ctx.restore(); } }
+        function resizeGame() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; scale = Math.min(canvas.width / WORLD_WIDTH, canvas.height / WORLD_HEIGHT); offsetX = (canvas.width - WORLD_WIDTH * scale) / 2; offsetY = (canvas.height - WORLD_HEIGHT * scale) / 2; }
+        function updateCountdownDisplay() { countdownDisplay.textContent = countdownTimer > 0 ? countdownTimer : ''; }
+        
+        function gameLoop(timestamp) {
+            if (!gameRunning && countdownTimer <= 0 && !roundOver) { // Não pare se a rodada acabou (precisa desenhar explosão)
+                if(animationFrameId) cancelAnimationFrame(animationFrameId);
+                animationFrameId = null;
+                return;
+            }
+
+            if (lastTime === 0) lastTime = timestamp; 
+            const deltaTime = timestamp - lastTime;
+            lastTime = timestamp;
+
+            // Lógica de Fim de Round
+            if (roundOver) {
+                if (effects.length === 0) { // Verifica se as explosões terminaram
+                    // A rodada realmente termina agora
+                    roundOver = false;
+                    gameRunning = false;
+                    if(animationFrameId) cancelAnimationFrame(animationFrameId);
+                    animationFrameId = null;
+
+                    if (isEndlessMode) {
+                        notification.text = `${roundWinner} VENCEU A RODADA!`;
+                        notification.color = roundWinner.includes('Azul') ? '#03a9f4' : '#f44336';
+                        notification.timer = 120; 
+                        setTimeout(startNextEndlessRound, 1000); // Pequeno atraso antes de reiniciar
+                    } else {
+                        if (unlockedLevel === currentLevel + 1 && unlockedLevel < levels.length) unlockedLevel++;
+                        showVictoryScreen(roundWinner);
+                    }
+                    return; // Para este loop
+                }
+            }
+
+            if (controlsLocked && !roundOver) { // Não mexa no countdown se a rodada acabou
+                const elapsed = performance.now() - countdownStart; const secondsPassed = Math.floor(elapsed / 1000);
+                const newTimerValue = 3 - secondsPassed;
+                if (newTimerValue !== countdownTimer) { countdownTimer = newTimerValue; updateCountdownDisplay(); }
+                if (countdownTimer <= 0) { controlsLocked = false; countdownDisplay.classList.remove('visible'); nextPowerupTimer = NEW_POWERUP_INTERVAL; }
+            }
+            
+            ctx.fillStyle = '#1a1a1a'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.save(); ctx.translate(offsetX, offsetY); ctx.scale(scale, scale);
+            
+            drawMap(); 
+            
+            // Lógica de Update/Draw
+            
+            // Atualiza players APENAS se os controles não estiverem travados
+            if (!controlsLocked) { 
+                p1.update(); 
+                p2.update(); 
+            }
+            
+            // Explosões e Projéteis SEMPRE atualizam (para as animações continuarem)
+            for (let i = effects.length - 1; i >= 0; i--) {
+                effects[i].update();
+                if (!effects[i].isAlive) {
+                    effects.splice(i, 1);
+                }
+            }
+            projectiles.forEach(p => p.update());
+
+            // Desenha tudo
+            effects.forEach(e => e.draw()); // Desenha explosões
+            p1.draw(); // (Não desenha se isDestroyed == true)
+            p2.draw(); // (Não desenha se isDestroyed == true)
+            projectiles.forEach(p => p.draw());
+            
+            // Atualiza powerups APENAS se os controles não estiverem travados
+            if (!controlsLocked) { 
+                updatePowerUps(deltaTime); 
+            }
+            drawPowerUps(); // Sempre desenha os powerups
+            
+            ctx.restore();
+            
+            drawNotification(); 
+            
+            // Verifica colisões APENAS se os controles não estiverem travados
+            if (!controlsLocked) { 
+                checkCollisions(); 
+            }
+            
+            animationFrameId = requestAnimationFrame(gameLoop);
+        }
+
+        window.addEventListener('resize', resizeGame);
+        nextLevelButton.addEventListener('click', showLevelSelection);
+        endlessModeButton.addEventListener('click', () => { isEndlessMode = true; p1Score = 0; p2Score = 0; updateScores(); startNextEndlessRound(); });
+        window.addEventListener('keydown', (e) => { if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyE', 'KeyL'].includes(e.code)) e.preventDefault(); keysPressed[e.code] = true; });
+        window.addEventListener('keyup', (e) => { keysPressed[e.code] = false; });
+        resizeGame();
+        showLevelSelection(); 
+        updateScores();
+    </script>
+</body>
+</html>
