@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Batalha de Tanques - Imunidade de Tiro</title>
+    <title>Batalha de Tanques - Mapas Aleatórios</title>
     <style>
         /* CSS (sem alterações visuais significativas) */
         body { background-color: #1a1a1a; color: #fff; font-family: 'Courier New', Courier, monospace; margin: 0; overflow: hidden; }
@@ -79,8 +79,9 @@
         const MAX_POWERUPS_ON_MAP = 4;
         const POWERUP_LIFETIME = 40000;
         const PROJECTILE_IMMUNITY_DURATION = 100; // Tempo de imunidade GERAL (paredes, inimigos)
-        // <<< MUDANÇA AQUI --- Nova constante para imunidade contra PRÓPRIOS tiros
         const SELF_IMMUNITY_DURATION = 300; // Tempo de imunidade (0,3s) contra PRÓPRIOS tiros
+
+        const TOTAL_CAMPAIGN_LEVELS = 25;
 
         // --- Efeitos Sonoros ---
         const sounds = {
@@ -98,14 +99,11 @@
         let nextPowerupTimer = NEW_POWERUP_INTERVAL;
         let lastTime = 0;
         let isEndlessMode = false;
-        let endlessMap = { walls: [] };
+        let currentMap = { walls: [] }; 
         let countdownTimer = 0, countdownStart = 0, controlsLocked = false;
         let effects = []; // Array para explosões e outros efeitos
         let roundOver = false;
         let roundWinner = null;
-
-        // --- Banco de Dados de Níveis Fixos (Campanha) ---
-        const levels = [ { walls:[ {x:200,y:0,width:20,height:500},{x:200,y:500,width:880,height:20},{x:1080,y:200,width:20,height:520},{x:400,y:200,width:700,height:20},{x:400,y:200,width:20,height:200} ] }, { walls:[ {x:300,y:0,width:20,height:300},{x:300,y:400,width:20,height:320},{x:980,y:0,width:20,height:300},{x:980,y:400,width:20,height:320},{x:0,y:350,width:1280,height:20} ] }, { walls:[ {x:0,y:200,width:400,height:20},{x:400,y:200,width:20,height:320},{x:200,y:520,width:400,height:20},{x:880,y:0,width:20,height:400},{x:880,y:400,width:400,height:20} ] }, { walls:[ {x:250,y:150,width:20,height:420},{x:1030,y:150,width:20,height:420},{x:250,y:150,width:300,height:20},{x:750,y:150,width:300,height:20},{x:250,y:550,width:300,height:20},{x:750,y:550,width:300,height:20},{x:500,y:0,width:280,height:20},{x:500,y:700,width:280,height:20} ] }, { walls:[ {x:450,y:250,width:380,height:220} ] }, { walls:[ {x:150,y:150,width:20,height:420},{x:1130,y:150,width:20,height:420},{x:150,y:150,width:980,height:20},{x:150,y:550,width:980,height:20},{x:300,y:300,width:20,height:250},{x:450,y:150,width:20,height:250},{x:620,y:300,width:20,height:250},{x:790,y:150,width:20,height:250},{x:960,y:300,width:20,height:250} ] }, { walls:[ {x:0,y:230,width:500,height:20},{x:780,y:230,width:500,height:20},{x:0,y:470,width:500,height:20},{x:780,y:470,width:500,height:20},{x:630,y:0,width:20,height:720} ] }, { walls:[ {x:200,y:100,width:20,height:520},{x:400,y:100,width:20,height:520},{x:600,y:100,width:20,height:520},{x:800,y:100,width:20,height:520},{x:1000,y:100,width:20,height:520} ] }, { walls:[ {x:150,y:0,width:20,height:300},{x:150,y:300,width:400,height:20},{x:550,y:150,width:20,height:400},{x:550,y:550,width:400,height:20},{x:950,y:300,width:20,height:420},{x:1100,y:0,width:20,height:300} ] }, { walls:[ {x:300,y:200,width:20,height:320},{x:980,y:200,width:20,height:320},{x:300,y:200,width:700,height:20},{x:450,y:350,width:380,height:20},{x:150,y:500,width:1000,height:20} ] }, { walls:[ {x:0,y:180,width:200,height:20},{x:200,y:180,width:20,height:200},{x:200,y:380,width:400,height:20},{x:600,y:180,width:20,height:200},{x:400,y:180,width:400,height:20},{x:1080,y:180,width:200,height:20},{x:1080,y:180,width:20,height:200},{x:880,y:380,width:400,height:20},{x:880,y:180,width:20,height:200},{x:680,y:180,width:400,height:20},{x:0,y:530,width:1280,height:20} ] }, { walls:[ {x:630,y:0,width:20,height:250},{x:630,y:470,width:20,height:250},{x:200,y:350,width:880,height:20} ] }, { walls:[ {x:150,y:150,width:150,height:20},{x:150,y:550,width:150,height:20},{x:400,y:350,width:150,height:20},{x:650,y:150,width:150,height:20},{x:650,y:550,width:150,height:20},{x:900,y:350,width:150,height:20} ] }, { walls:[ {x:100,y:100,width:20,height:200},{x:100,y:420,width:20,height:200},{x:1180,y:100,width:20,height:200},{x:1180,y:420,width:20,height:200},{x:300,y:200,width:20,height:320},{x:500,y:0,width:20,height:220},{x:500,y:320,width:20,height:400},{x:780,y:0,width:20,height:400},{x:780,y:500,width:20,height:220},{x:980,y:100,width:20,height:320} ] }, { walls:[ {x:200,y:200,width:200,height:20},{x:880,y:200,width:200,height:20},{x:200,y:500,width:200,height:20},{x:880,y:500,width:200,height:20},{x:540,y:0,width:200,height:20},{x:540,y:700,width:200,height:20} ] }, { walls:[ {x:200,y:150,width:20,height:420},{x:400,y:150,width:480,height:20},{x:400,y:550,width:480,height:20},{x:880,y:150,width:20,height:420},{x:1080,y:0,width:20,height:720} ] }, { walls:[ {x:0,y:350,width:400,height:20},{x:400,y:150,width:20,height:220},{x:550,y:150,width:200,height:20},{x:880,y:350,width:400,height:20},{x:880,y:350,width:20,height:220},{x:730,y:550,width:200,height:20} ] }, { walls:[ {x:150,y:150,width:20,height:150},{x:150,y:420,width:20,height:150},{x:350,y:0,width:20,height:200},{x:350,y:300,width:20,height:420},{x:550,y:150,width:20,height:420},{x:750,y:0,width:20,height:500},{x:950,y:200,width:20,height:520},{x:1150,y:0,width:20,height:350} ] }, { walls:[ {x:200,y:200,width:880,height:20},{x:200,y:500,width:880,height:20} ] }, { walls:[ {x:300,y:300,width:680,height:120} ] }, { walls:[ {x:200,y:0,width:20,height:200},{x:200,y:200,width:300,height:20},{x:500,y:200,width:20,height:320},{x:500,y:520,width:300,height:20},{x:800,y:0,width:20,height:520},{x:800,y:520,width:300,height:20} ] }, { walls:[ {x:300,y:150,width:200,height:20},{x:300,y:550,width:200,height:20},{x:780,y:150,width:200,height:20},{x:780,y:550,width:200,height:20},{x:630,y:0,width:20,height:720} ] }, { walls:[ {x:150,y:150,width:20,height:420},{x:150,y:150,width:420,height:20},{x:570,y:150,width:20,height:420},{x:150,y:570,width:420,height:20},{x:720,y:150,width:420,height:20},{x:720,y:150,width:20,height:420},{x:1140,y:150,width:20,height:420},{x:720,y:570,width:440,height:20} ] }, { walls:[ {x:300,y:0,width:20,height:200},{x:300,y:200,width:300,height:20},{x:600,y:200,width:20,height:320},{x:0,y:520,width:620,height:20},{x:900,y:0,width:20,height:400},{x:900,y:400,width:380,height:20} ] }, { walls:[ {x:100,y:100,width:20,height:20},{x:200,y:200,width:20,height:20},{x:300,y:300,width:20,height:20},{x:400,y:400,width:20,height:20},{x:500,y:500,width:20,height:20},{x:1180,y:100,width:20,height:20},{x:1080,y:200,width:20,height:20},{x:980,y:300,width:20,height:20},{x:880,y:400,width:20,height:20},{x:780,y:500,width:20,height:20} ] } ];
 
         // --- Banco de Dados de Power-ups ---
         const powerUpTypes = ['LÁSER', 'TIRO TELEGUIDADO', 'ESCOPETA', 'BOMBA CACHO', 'RAIO FANTASMA'];
@@ -293,22 +291,30 @@
         }
         
         // --- FUNÇÕES GLOBAIS DO JOGO ---
-        function getcurrentwalls() { return isEndlessMode ? endlessMap.walls : levels[currentLevel].walls; }
+        function getcurrentwalls() { 
+            return currentMap.walls; 
+        }
         function isPointInsideWall(x, y) { for (const wall of getcurrentwalls()) { if (x >= wall.x && x <= wall.x + wall.width && y >= wall.y && y <= wall.y + wall.height) return true; } return false; }
         function isPositionColliding(x, y, angle) { const halfWidth = TANK_WIDTH / 2; const halfHeight = TANK_HEIGHT / 2; if (x - halfWidth < 0 || x + halfWidth > WORLD_WIDTH || y - halfHeight < 0 || y + halfHeight > WORLD_HEIGHT) return true; const cannonPoints = [ { x: x + Math.cos(angle) * (CANNON_WIDTH / 2), y: y + Math.sin(angle) * (CANNON_WIDTH / 2) }, { x: x + Math.cos(angle) * (CANNON_LENGTH / 2), y: y + Math.sin(angle) * (CANNON_LENGTH / 2) }, { x: x + Math.cos(angle) * CANNON_LENGTH, y: y + Math.sin(angle) * CANNON_LENGTH } ]; for (const wall of getcurrentwalls()) { const tankLeft = x - halfWidth, tankRight = x + halfWidth; const tankTop = y - halfHeight, tankBottom = y + halfHeight; if (tankRight > wall.x && tankLeft < wall.x + wall.width && tankBottom > wall.y && tankTop < wall.y + wall.height) return true; for (const point of cannonPoints) { if (isPointInsideWall(point.x, point.y)) return true; } } return false; }
         function findValidSpawnPoint(avoidPoints = []) { let spawnPoint = null; let attempts = 0; const MIN_DISTANCE = 300; while (attempts < 1000) { const x = Math.random() * (WORLD_WIDTH - TANK_WIDTH * 4) + TANK_WIDTH * 2; const y = Math.random() * (WORLD_HEIGHT - TANK_HEIGHT * 4) + TANK_HEIGHT * 2; const angle = Math.random() * Math.PI * 2; if (!isPositionColliding(x, y, angle)) { let tooClose = false; for(const point of avoidPoints) { if (Math.hypot(x-point.x, y-point.y) < MIN_DISTANCE) { tooClose = true; break; } } if (!tooClose) { spawnPoint = { x, y }; break; } } attempts++; } if (!spawnPoint) {console.error("Não foi possível encontrar local seguro para spawn!"); return { x: 100, y: 100 };} return spawnPoint; }
         function drawMap() { ctx.fillStyle = '#2c2c2c'; ctx.fillRect(0,0,WORLD_WIDTH, WORLD_HEIGHT); ctx.fillStyle = '#6d6d6d'; getcurrentwalls().forEach(wall => { ctx.fillRect(wall.x, wall.y, wall.width, wall.height); }); }
         
+        // init agora SEMPRE gera mapas
         function init(levelIdx) { 
             currentLevel = levelIdx; 
-            if(isEndlessMode) endlessMap.walls = generateMazeWalls(); 
+            
+            // Gera o mapa SEMPRE, não importa o modo (campanha ou infinito)
+            currentMap.walls = generateMazeWalls(); 
+            
             let p1StartPos, p2StartPos, attempts = 0;
             do {
                 p1StartPos = findValidSpawnPoint(); p2StartPos = findValidSpawnPoint([p1StartPos]); attempts++;
                 if(attempts > 50) { console.error("Tentativas de spawn excedidas!"); p1StartPos = {x:100, y:100}; p2StartPos = {x: WORLD_WIDTH - 100, y: WORLD_HEIGHT - 100}; break; }
             } while (isPositionColliding(p1StartPos.x, p1StartPos.y, 0) || isPositionColliding(p2StartPos.x, p2StartPos.y, 0));
+            
             p1 = new Tank(p1StartPos.x, p1StartPos.y, '#03a9f4', { forward: 'KeyW', backward: 'KeyS', left: 'KeyA', right: 'KeyD', shoot: 'KeyE' }); 
             p2 = new Tank(p2StartPos.x, p2StartPos.y, '#f44336', { forward: 'ArrowUp', backward: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight', shoot: 'KeyL' }); 
+            
             projectiles = []; 
             powerUpsOnMap = []; 
             effects = []; // Limpa os efeitos da rodada anterior
@@ -325,7 +331,7 @@
 
         function isTankHitByLaser(tank, laserOwner) { const laserAngle = laserOwner.angle; const dx = tank.x - laserOwner.x; const dy = tank.y - laserOwner.y; const distanceAlongLaser = dx * Math.cos(laserAngle) + dy * Math.sin(laserAngle); if (distanceAlongLaser < 0) return false; const perpendicularDist = Math.abs(dx * Math.sin(laserAngle) - dy * Math.cos(laserAngle)); return perpendicularDist < TANK_WIDTH / 2; }
         
-        // <<< MUDANÇA AQUI --- Lógica de colisão atualizada
+        // Lógica de colisão com imunidade de 300ms contra próprios tiros
         function checkCollisions() { 
             for (let i = projectiles.length - 1; i >= 0; i--) { 
                 const proj = projectiles[i]; 
@@ -351,11 +357,10 @@
                     continue; 
                 } 
                 
-                // <<< MUDANÇA AQUI --- Função auxiliar de colisão com nova lógica
+                // Função auxiliar de colisão com nova lógica
                 const checkTankCollision = (tank, proj) => { 
                     if (!tank || tank.isDestroyed) return false; 
                     
-                    // <<< INÍCIO DA NOVA LÓGICA
                     // Verifica se é o projétil do próprio tanque
                     if (proj.owner === tank) {
                         // Verifica há quanto tempo o projétil foi disparado
@@ -363,14 +368,10 @@
                         if (timeSinceFired < SELF_IMMUNITY_DURATION) {
                             return false; // Está imune aos PRÓPRIOS tiros por 300ms
                         }
-                        // Se passou os 300ms, a colisão é verificada normalmente (abaixo)
                     }
-                    // <<< FIM DA NOVA LÓGICA
-                    
                     // Colisão normal (para o oponente, ou para si mesmo após 300ms)
                     return Math.hypot(proj.x - tank.x, proj.y - tank.y) < (TANK_WIDTH/2 + proj.radius);
                 }; 
-                // --- FIM DA MUDANÇA ---
                 
                 if (checkTankCollision(p1, proj)) { 
                     p1.isDestroyed = true; 
@@ -397,15 +398,29 @@
                 } 
             } 
         }
-        // --- FIM DA MUDANÇA ---
 
         function updateScores() { p1ScoreElem.textContent = `Player 1: ${p1Score}`; p2ScoreElem.textContent = `Player 2: ${p2Score}`; }
         
-        function showVictoryScreen(winner) { victoryTitle.textContent = `${winner} venceu o Nível ${currentLevel + 1}!`; levelSelectionContainer.style.display = 'none'; victoryMessage.style.display = 'flex'; uiLayer.classList.remove('hidden'); } // Esconde seleção, mostra vitória
+        // Adicionada lógica de Fim de Campanha
+        function showVictoryScreen(winner) { 
+            if (currentLevel + 1 === TOTAL_CAMPAIGN_LEVELS) {
+                victoryTitle.textContent = `${winner} VENCEU A CAMPANHA!`;
+                nextLevelButton.textContent = 'Voltar ao Menu';
+            } else {
+                victoryTitle.textContent = `${winner} venceu o Nível ${currentLevel + 1}!`;
+                nextLevelButton.textContent = 'Continuar';
+            }
+            levelSelectionContainer.style.display = 'none'; 
+            victoryMessage.style.display = 'flex'; 
+            uiLayer.classList.remove('hidden'); 
+        } 
+        
+        // Usa TOTAL_CAMPAIGN_LEVELS
         function showLevelSelection() {
             isEndlessMode = false; sounds.musica.pause(); sounds.musica.currentTime = 0; p1Score = 0; p2Score = 0; updateScores();
             levelSelection.innerHTML = '';
-            for (let i = 0; i < levels.length; i++) {
+            // Usa a constante para criar os botões
+            for (let i = 0; i < TOTAL_CAMPAIGN_LEVELS; i++) {
                 const button = document.createElement('button'); button.textContent = i + 1; button.classList.add('level-button');
                 if (i < unlockedLevel) { button.classList.add('unlocked'); button.onclick = () => { isEndlessMode = false; startGame(i); }; }
                 levelSelection.appendChild(button);
@@ -415,7 +430,14 @@
             uiLayer.classList.remove('hidden'); // Garante que a UI esteja visível
         }
         function startGame(levelIndex) { if(animationFrameId) cancelAnimationFrame(animationFrameId); init(levelIndex); uiLayer.classList.add('hidden'); gameRunning = true; lastTime = 0; animationFrameId = requestAnimationFrame(gameLoop); sounds.musica.play().catch(e=>console.log("Música bloqueada.")); }
-        function startNextEndlessRound() { endlessMap.walls = []; init(null); uiLayer.classList.add('hidden'); gameRunning = true; lastTime = 0; animationFrameId = requestAnimationFrame(gameLoop); }
+        
+        function startNextEndlessRound() { 
+            init(null); // Init agora cuida de gerar o novo mapa
+            uiLayer.classList.add('hidden'); 
+            gameRunning = true; 
+            lastTime = 0; 
+            animationFrameId = requestAnimationFrame(gameLoop); 
+        }
         function updatePowerupUI() { p1PowerupElem.textContent = p1?.powerUp ? `P1: ${p1.powerUp}` : ''; p2PowerupElem.textContent = p2?.powerUp ? `P2: ${p2.powerUp}` : ''; }
         function updatePowerUps(deltaTime) {
             nextPowerupTimer -= deltaTime;
@@ -443,8 +465,12 @@
         function resizeGame() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; scale = Math.min(canvas.width / WORLD_WIDTH, canvas.height / WORLD_HEIGHT); offsetX = (canvas.width - WORLD_WIDTH * scale) / 2; offsetY = (canvas.height - WORLD_HEIGHT * scale) / 2; }
         function updateCountdownDisplay() { countdownDisplay.textContent = countdownTimer > 0 ? countdownTimer : ''; }
         
+        // --- Loop de Jogo (GameLoop) ---
+        // Esta é a função principal que controla o fluxo do jogo
         function gameLoop(timestamp) {
-            if (!gameRunning && countdownTimer <= 0 && !roundOver) { // Não pare se a rodada acabou (precisa desenhar explosão)
+            
+            // 1. Lógica de Parada: Se o jogo não está rodando E o countdown acabou E a rodada não terminou (explosão)
+            if (!gameRunning && countdownTimer <= 0 && !roundOver) { 
                 if(animationFrameId) cancelAnimationFrame(animationFrameId);
                 animationFrameId = null;
                 return;
@@ -454,28 +480,32 @@
             const deltaTime = timestamp - lastTime;
             lastTime = timestamp;
 
-            // Lógica de Fim de Round
+            // 2. Lógica de Fim de Round (A EXPLOSÃO)
             if (roundOver) {
-                if (effects.length === 0) { // Verifica se as explosões terminaram
-                    // A rodada realmente termina agora
+                // Se a rodada terminou, nós SÓ esperamos as explosões (effects) terminarem
+                if (effects.length === 0) { 
+                    // Agora que a explosão terminou, paramos o jogo
                     roundOver = false;
                     gameRunning = false;
                     if(animationFrameId) cancelAnimationFrame(animationFrameId);
                     animationFrameId = null;
 
                     if (isEndlessMode) {
+                        // Modo Infinito: Mostra notificação e reinicia
                         notification.text = `${roundWinner} VENCEU A RODADA!`;
                         notification.color = roundWinner.includes('Azul') ? '#03a9f4' : '#f44336';
                         notification.timer = 120; 
-                        setTimeout(startNextEndlessRound, 1000); // Pequeno atraso antes de reiniciar
+                        setTimeout(startNextEndlessRound, 1000); 
                     } else {
-                        if (unlockedLevel === currentLevel + 1 && unlockedLevel < levels.length) unlockedLevel++;
+                        // Modo Campanha: Desbloqueia o nível e mostra a TELA DE VITÓRIA (com o botão de mudar de fase)
+                        if (unlockedLevel === currentLevel + 1 && unlockedLevel < TOTAL_CAMPAIGN_LEVELS) unlockedLevel++;
                         showVictoryScreen(roundWinner);
                     }
-                    return; // Para este loop
+                    return; // Para este loop, pois o jogo acabou
                 }
             }
 
+            // 3. Lógica do Countdown inicial
             if (controlsLocked && !roundOver) { // Não mexa no countdown se a rodada acabou
                 const elapsed = performance.now() - countdownStart; const secondsPassed = Math.floor(elapsed / 1000);
                 const newTimerValue = 3 - secondsPassed;
@@ -483,12 +513,13 @@
                 if (countdownTimer <= 0) { controlsLocked = false; countdownDisplay.classList.remove('visible'); nextPowerupTimer = NEW_POWERUP_INTERVAL; }
             }
             
+            // 4. Limpeza e Desenho do Fundo
             ctx.fillStyle = '#1a1a1a'; ctx.fillRect(0, 0, canvas.width, canvas.height);
             ctx.save(); ctx.translate(offsetX, offsetY); ctx.scale(scale, scale);
             
             drawMap(); 
             
-            // Lógica de Update/Draw
+            // 5. Atualizações e Desenhos (Lógica principal)
             
             // Atualiza players APENAS se os controles não estiverem travados
             if (!controlsLocked) { 
@@ -496,7 +527,7 @@
                 p2.update(); 
             }
             
-            // Explosões e Projéteis SEMPRE atualizam (para as animações continuarem)
+            // Explosões e Projéteis SEMPRE atualizam (para as animações continuarem mesmo após a morte)
             for (let i = effects.length - 1; i >= 0; i--) {
                 effects[i].update();
                 if (!effects[i].isAlive) {
@@ -505,11 +536,11 @@
             }
             projectiles.forEach(p => p.update());
 
-            // Desenha tudo
-            effects.forEach(e => e.draw()); // Desenha explosões
-            p1.draw(); // (Não desenha se isDestroyed == true)
-            p2.draw(); // (Não desenha se isDestroyed == true)
-            projectiles.forEach(p => p.draw());
+            // Desenha tudo na ordem correta
+            effects.forEach(e => e.draw()); // 1. Explosões (ficam por baixo)
+            p1.draw(); // 2. Player 1 (Não desenha se isDestroyed == true)
+            p2.draw(); // 3. Player 2
+            projectiles.forEach(p => p.draw()); // 4. Projéteis (ficam por cima)
             
             // Atualiza powerups APENAS se os controles não estiverem travados
             if (!controlsLocked) { 
@@ -519,13 +550,15 @@
             
             ctx.restore();
             
+            // 6. UI (Notificações)
             drawNotification(); 
             
-            // Verifica colisões APENAS se os controles não estiverem travados
+            // 7. Checagem de Colisão (SÓ se os controles não estiverem travados)
             if (!controlsLocked) { 
                 checkCollisions(); 
             }
             
+            // 8. Próximo Frame
             animationFrameId = requestAnimationFrame(gameLoop);
         }
 
