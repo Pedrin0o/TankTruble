@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Batalha de Tanques - Menu</title>
+    <link rel="stylesheet" href="game.css">
+</head>
+<body>
+    <h1>Batalha de Tanques</h1>
+
+    <div id="ui-layer">
+        <div id="main-menu">
+            <h2>Escolha o Modo</h2>
+            <button id="campaign-button">MODO CAMPANHA (Caça Bandeira)</button>
+            <button id="endless-button">MODO INFINITO (Mata-Mata)</button>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('campaign-button').addEventListener('click', () => {
+            // Redireciona para game.html com o modo campanha
+            window.location.href = 'game.html?mode=campaign';
+        });
+
+        document.getElementById('endless-button').addEventListener('click', () => {
+            // Redireciona para game.html com o modo infinito
+            window.location.href = 'game.html?mode=endless';
+        });
+    </script>
+</body>
+</html>

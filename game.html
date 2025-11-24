@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Batalha de Tanques - Jogo</title>
+    <link rel="stylesheet" href="game.css">
+</head>
+<body>
+    <h1>Batalha de Tanques</h1>
+    <canvas id="game-canvas"></canvas>
+    <div id="countdown-display"></div>
+
+    <div id="ui-layer" class="hidden"> <div id="level-selection-container">
+            <h2>Selecione o Nível (Modo Campanha - Caça Bandeira)</h2>
+            <div id="level-selection"></div>
+            <button id="back-to-menu-button" style="margin-top: 30px; padding: 10px 20px; font-size: 1rem; background-color: #6c757d;">Voltar ao Menu</button>
+        </div>
+
+        <div id="victory-message">
+            <h2 id="victory-title"></h2>
+            <button id="next-level-button">Continuar</button>
+        </div>
+    </div>
+
+    <div id="score-display">
+        <span id="player1-score">Player 1: 0</span>
+        <span id="player2-score">Player 2: 0</span>
+    </div>
+    <div id="powerup-display">
+        <span id="player1-powerup"></span>
+        <span id="player2-powerup"></span>
+    </div>
+
+    <script src="common.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const mode = urlParams.get('mode');
+            let gameScriptSrc = '';
+            let setupFunction = null;
+
+            // Mostra elementos básicos do jogo que são sempre necessários
+            const canvasEl = document.getElementById('game-canvas');
+            const scoreDisplayEl = document.getElementById('score-display');
+            const powerupDisplayEl = document.getElementById('powerup-display');
+            const countdownDisplayEl = document.getElementById('countdown-display');
+
+            if (canvasEl) canvasEl.style.display = 'block';
+            if (scoreDisplayEl) scoreDisplayEl.style.display = 'flex';
+            if (powerupDisplayEl) powerupDisplayEl.style.display = 'flex';
+            if (countdownDisplayEl) countdownDisplayEl.style.display = 'block'; // Ocultado/mostrado pelo countdown
+
+             // Configura botão Voltar (se existir)
+            const backButton = document.getElementById('back-to-menu-button');
+            if(backButton) {
+                backButton.onclick = () => window.location.href = 'menu.html';
+            }
+
+            if (mode === 'campaign') {
+                gameScriptSrc = 'ctf_game.js';
+                // A função setup será chamada DEPOIS que ctf_game.js carregar
+                setupFunction = () => {
+                    if (typeof setupCampaignUI === 'function') {
+                        setupCampaignUI();
+                    } else {
+                        console.error("Erro: Função setupCampaignUI não encontrada após carregar ctf_game.js");
+                    }
+                };
+            } else if (mode === 'endless') {
+                gameScriptSrc = 'dm_game.js';
+                 // A função setup será chamada DEPOIS que dm_game.js carregar
+                 setupFunction = () => {
+                     if (typeof setupEndlessGame === 'function') {
+                        setupEndlessGame();
+                    } else {
+                        console.error("Erro: Função setupEndlessGame não encontrada após carregar dm_game.js");
+                    }
+                 };
+            } else {
+                // Modo inválido, volta ao menu
+                console.warn("Modo de jogo inválido ou não especificado. Voltando ao menu.");
+                window.location.href = 'menu.html';
+                return; // Impede carregamento de script
+            }
+
+            if (gameScriptSrc) {
+                console.log(`Carregando script do modo: ${gameScriptSrc}`);
+                const scriptElement = document.createElement('script');
+                scriptElement.src = gameScriptSrc;
+                scriptElement.onload = () => {
+                    console.log(`Script ${gameScriptSrc} carregado.`);
+                    if(setupFunction) {
+                        setupFunction(); // Chama a função de setup específica do modo
+                    }
+                };
+                scriptElement.onerror = () => {
+                    console.error(`Erro ao carregar o script: ${gameScriptSrc}`);
+                     // Talvez mostrar uma mensagem de erro na UI
+                     const ui = document.getElementById('ui-layer');
+                     const title = document.getElementById('victory-title'); // Reutiliza título
+                     if(ui && title){
+                         title.textContent = "Erro ao carregar o modo de jogo.";
+                         ui.classList.remove('hidden');
+                         // Esconde outros containers se necessário
+                          const levelSel = document.getElementById('level-selection-container');
+                          const vicMsg = document.getElementById('victory-message');
+                          if(levelSel) levelSel.style.display = 'none';
+                          if(vicMsg) vicMsg.style.display = 'flex'; // Mostra container de vitória para msg de erro
+                     }
+                };
+                document.body.appendChild(scriptElement);
+            }
+        });
+    </script>
+</body>
+</html>
